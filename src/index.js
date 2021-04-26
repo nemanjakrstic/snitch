@@ -3,9 +3,11 @@ const { App, LogLevel, ExpressReceiver } = require("@slack/bolt");
 const config = require("config");
 
 const PipelineUpdateHandler = require("./handlers/PipelineUpdateHandler");
+const Go = require("./services/go");
+const Pipeline = require("./models/Pipeline");
 
 const receiver = new ExpressReceiver({
-    signingSecret: process.env.SLACK_SIGNING_SECRET,
+    signingSecret: config.get("slack.signingSecret"),
 });
 
 const app = new App({
@@ -15,14 +17,36 @@ const app = new App({
     // logLevel: LogLevel.DEBUG,
 });
 
-app.action({ callback_id: "run_failed_jobs" }, async ({ ack, callback }) => {
-    console.log("run_failed_jobs callback", callback?.value);
-    await ack();
-});
+app.action({ callback_id: "build_response" }, async ({ action, say, ack }) => {
+    console.log("build_response with action", action);
+    await ack(); // Tell them we received this
+    const payload = JSON.parse(action.value);
 
-app.action("run_failed_jobs", async ({ ack, action }) => {
-    console.log("run_failed_jobs action", action?.value);
-    await ack();
+    let msg = "Error, invalid payload";
+    if (action.name === "rerun") {
+        const result = await Go.runFailedJobs(payload.uri);
+        msg = (result?.message || "Error trigerring build") + ` for ${payload.name}`;
+    }
+
+    if (action.name === "output" && payload.jobs?.length > 0) {
+        const [pipelineData, stageHistory] = await Promise.all([
+            Go.fetchPipelineInstance(payload.name),
+            Go.fetchStageHistory(payload.pipeline, payload.stage),
+        ]);
+        if (pipelineData && stageHistory.stages) {
+            pipelineData.stage = stageHistory.stages.find((s) => s.counter == payload.counter);
+            const pipeline = new Pipeline(pipelineData);
+            const handler = new PipelineUpdateHandler();
+            await handler.parseFailures(pipeline, true);
+            msg = pipeline.get("failures") ? `Detail error output\n` : "Error processing failures";
+            pipeline.get("failures")?.forEach((failure) => {
+                const failureMsg = failure.replace(/^\s*\n/gm, ""); // Trim empty lines
+                msg += "```" + failureMsg + "``` ";
+            });
+        }
+    }
+
+    await say(msg);
 });
 
 const handlers = [PipelineUpdateHandler];

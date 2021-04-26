@@ -1,11 +1,13 @@
 const Pipeline = require("../models/Pipeline");
+const Go = require("../services/go");
 
 class PipelineFailedNotification {
     /**
      * @param {Pipeline} pipeline
      */
-    constructor(pipeline) {
+    constructor(pipeline, user) {
         this.pipeline = pipeline;
+        this.user = user;
     }
 
     getColor() {
@@ -17,52 +19,124 @@ class PipelineFailedNotification {
             return "#ff5a5a"; // Red
         }
 
+        if (this.pipeline.get("isFullyGreen")) {
+            return "#00FF7F"; // Green
+        }
+
         if (this.pipeline.get("stage.state") === Pipeline.STAGE_PASSED) {
-            return "#27ce70"; // Green
+            return "#27ce70"; // Another Green
         }
 
         return "#1352c6"; // Blue
     }
 
-    toJSON() {
+    async toJSON() {
         const { pipeline } = this;
 
-        const fields = [
-            {
-                title: "Pipeline",
-                value: pipeline.getName(),
-                short: true,
-            },
-            {
-                title: "Stage",
-                value: pipeline.getStageName(),
-                short: true,
-            },
-        ];
+        const fields = [];
 
-        if (pipeline.getTicketNumber()) {
-            fields.push({
-                title: "JIRA",
-                value: `<${pipeline.getTicketUrl()}|${pipeline.getTicketNumber()}>`,
-                short: true,
+        // Jira link and emails that committed and trigerred the build
+        const jira = pipeline.getTicketNumber() ? `<${pipeline.getTicketUrl()}|${pipeline.getTicketNumber()}>` : null;
+
+        // Special message if the build is fully green
+        const state = this.pipeline.get("stage.state", "").toLowerCase();
+        let pretext = `${jira} Pipeline stage *${state}*`;
+        console.log("isFullyGreen", this.pipeline.get("isFullyGreen"));
+        if (this.pipeline.get("isFullyGreen")) {
+            pretext = `:partyparrot: ${jira} Pipeline *${this.pipeline.get("name")}* is *fully green*`;
+        }
+        pretext += ` <${pipeline.getUrl()}|${pipeline.getUri()}>`;
+
+        // Create an empty line
+        const emptyLine = { title: ``, value: "", short: true };
+        fields.push(emptyLine, emptyLine);
+
+        const failures = pipeline.get("failures");
+        const failedJobs = pipeline.getFailedJobs();
+        let failedTestsCount = 0;
+        const failedJobsOutputLimit = 10;
+        if (failedJobs.length > 0) {
+            let message = failedJobs
+                .slice(0, failedJobsOutputLimit)
+                .map((j) => `<${pipeline.getJobUrl(j.name)}|${j.name}>`)
+                .join(", ");
+
+            if (failedJobs.length > 10) {
+                message += ` and *${failedJobs.length - 10}* more jobs :scream:`;
+            } else {
+                failures?.forEach((failure) => {
+                    const failureMsg = failure.replace(/^\s*\n/gm, ""); // Trim empty lines
+                    message += "```" + failureMsg + "``` ";
+                    failedTestsCount++;
+                });
+            }
+
+            fields.push({ title: `Failed Jobs (${failedJobs.length})`, value: message });
+        }
+
+        const emails = [`Commited By: ${pipeline.getCommitterEmail()}`];
+        if (pipeline.getApprovedByEmail() && pipeline.getApprovedByEmail() !== pipeline.getCommitterEmail()) {
+            emails.push(`Trigerred by: ${pipeline.getApprovedByEmail()}`);
+        }
+
+        let footer = `Status: ${pipeline.get("stage.result")}, well done`;
+        if (pipeline.hasFailed()) {
+            footer = `Status: ${pipeline.getFailedJobs().length} jobs & ${failedTestsCount} tests failed`;
+        } else if (this.pipeline.get("isFullyGreen")) {
+            footer = `Status: Fully successfull`;
+        }
+
+        const actions = [];
+        const rerunAction = {
+            name: "rerun",
+            text: ":repeat: Rerun Failed",
+            type: "button",
+            value: JSON.stringify({
+                name: pipeline.getUri(),
+                stage: pipeline.getStageName(),
+                counter: pipeline.get("counter"),
+                uri: this.pipeline.getRerunUri(),
+            }),
+        };
+
+        if (failedJobs.length > 0 && failedJobs.length < 20 && pipeline.get('counter') < 10) {
+            // Only give the re-run option if this build has been re-run fewer than 10 times
+            // Force the engineer to re-check Go and not keep clicking this button
+            actions.push(rerunAction);
+        }
+
+        if (failedJobs.length > 0 && failedJobs.length < failedJobsOutputLimit) {
+            actions.push({
+                name: "output",
+                text: `:pencil: Show Full Results`,
+                type: "button",
+                value: JSON.stringify({
+                    pipeline: pipeline.get("name"),
+                    name: pipeline.getName(),
+                    counter: pipeline.get('stage.counter'),
+                    stage: pipeline.get("stage.name"),
+                    jobs: failedJobs.map((j) => j.name),
+                }),
             });
         }
 
-        const state = this.pipeline.get("stage.state", "").toLowerCase();
+        // console.log('actions', actions);
 
         return {
             attachments: [
                 {
-                    mrkdwn_in: [/*"text", */ "pretext"],
+                    mrkdwn_in: ["text", "pretext"],
                     color: this.getColor(),
-                    pretext: `Pipeline stage ${state} <${pipeline.getUrl()}|${pipeline.getUri()}>`,
-                    author_name: pipeline.getCommitterName(),
-                    author_icon: pipeline.getCommitterAvatarUrl(),
-                    title: pipeline.getCommitHash() + " " + pipeline.getCommitMessage(),
+                    pretext: pretext.trim(),
+                    author_name: this.user.name,
+                    author_icon: this.user.avatar,
+                    title: `${pipeline.getCommitHash()} ${pipeline.getCommitMessage()}`,
                     title_link: pipeline.getCommitUrl(),
-                    // text: "",
+                    text: emails.join(" "),
                     fields,
-                    footer: "Status: " + pipeline.get("stage.result"),
+                    footer,
+                    actions,
+                    callback_id: "build_response",
                 },
             ],
         };
