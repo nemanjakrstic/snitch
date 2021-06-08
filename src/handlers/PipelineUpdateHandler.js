@@ -84,9 +84,9 @@ class PipelineUpdateHandler extends Handler {
                 pipeline.set("isFullyGreen", isFullyGreen);
             } else {
                 const stageHistory = await Go.fetchStageHistory(pipeline.get("name"), pipeline.get("stage.name"));
-                const hasPreviousBuildSuceeded = this.hasPreviousBuildFailed(pipeline, stageHistory);
-                if (hasPreviousBuildSuceeded) {
-                    // Previous build suceeded, we don't need to notify again
+                const hasPreviousBuildSucceeded = this.hasPreviousBuildFailed(pipeline, stageHistory);
+                if (hasPreviousBuildSucceeded) {
+                    // Previous build succeeded, we don't need to notify again
                     return;
                 }
             }

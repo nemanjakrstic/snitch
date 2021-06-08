@@ -25,7 +25,7 @@ app.action({ callback_id: "build_response" }, async ({ action, say, ack }) => {
     let msg = "Error, invalid payload";
     if (action.name === "rerun") {
         const result = await Go.runFailedJobs(payload.uri);
-        msg = (result?.message || "Error trigerring build") + ` for ${payload.name}`;
+        msg = (result?.message || "Error triggering build") + ` for ${payload.name}`;
     }
 
     if (action.name === "output" && payload.jobs?.length > 0) {

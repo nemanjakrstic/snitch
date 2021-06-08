@@ -35,7 +35,7 @@ class PipelineFailedNotification {
 
         const fields = [];
 
-        // Jira link and emails that committed and trigerred the build
+        // Jira link and emails that committed and triggered the build
         const jira = pipeline.getTicketNumber() ? `<${pipeline.getTicketUrl()}|${pipeline.getTicketNumber()}>` : null;
 
         // Special message if the build is fully green
@@ -74,16 +74,16 @@ class PipelineFailedNotification {
             fields.push({ title: `Failed Jobs (${failedJobs.length})`, value: message });
         }
 
-        const emails = [`Commited By: ${pipeline.getCommitterEmail()}`];
+        const emails = [`Committed By: ${pipeline.getCommitterEmail()}`];
         if (pipeline.getApprovedByEmail() && pipeline.getApprovedByEmail() !== pipeline.getCommitterEmail()) {
-            emails.push(`Trigerred by: ${pipeline.getApprovedByEmail()}`);
+            emails.push(`Triggered by: ${pipeline.getApprovedByEmail()}`);
         }
 
         let footer = `Status: ${pipeline.get("stage.result")}, well done`;
         if (pipeline.hasFailed()) {
             footer = `Status: ${pipeline.getFailedJobs().length} jobs & ${failedTestsCount} tests failed`;
         } else if (this.pipeline.get("isFullyGreen")) {
-            footer = `Status: Fully successfull`;
+            footer = `Status: Fully successful`;
         }
 
         const actions = [];

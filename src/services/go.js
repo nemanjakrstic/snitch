@@ -14,7 +14,7 @@ const Go = {
             console.log("Rerun response", data);
             return data;
         } catch (err) {
-            console.log("Error re-trigerring", err.message);
+            console.log("Error re-triggering", err.message);
             return { message: err.message };
         }
     },
